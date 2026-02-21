@@ -109,7 +109,7 @@ def main(args):
         antibody_seq = args.single_input
         antigen_seq = args.antigen_seq
 
-        fasta_path = "output/model_HBindAb/generate.fasta"
+        fasta_path = "output/model_HbindAb/generate.fasta"
 
         model.generate_fasta(antibody_seq=antibody_seq, antigen_seq=antigen_seq, fasta_path=fasta_path, num_samples=args.num_samples)
                 
@@ -128,9 +128,9 @@ if __name__ == "__main__":
     parser.add_argument("--antigen_seq", type=str, default='LPLLCTLNKSHLYIKGGNASFQISFDDIAVLLPQYDVIIQHPADMSWCSKSDDQIWLSQWFMNAVGHDWHLDPPFLCRNRTKTEGFIFQVNTSKTGVNENYAKKFKTGMHHLYREYPDSCLNGKLCLMKAQPTSWPLQCPLD')
     parser.add_argument("--antibody_model_name", type=str, default='Rostlab/prot_bert')
     parser.add_argument("--antigen_model_name", type=str, default='facebook/esm2_t6_8M_UR50D')
-    parser.add_argument('--checkpoint', type=str, default='output/model_HBindAb/checkpoints_h3/last.ckpt')
+    parser.add_argument('--checkpoint', type=str, default='output/model_HbindAb/checkpoints_h3/last.ckpt')
     parser.add_argument('--root_dir', type=str, default='output')
-    parser.add_argument('--exp_dir', type=str, default='model_HBindAb')
+    parser.add_argument('--exp_dir', type=str, default='model_HbindAb')
     parser.add_argument('--dataset', type=str, default='sabdab')
     parser.add_argument('--bsize', type=int, default=32)
     parser.add_argument('--bsize_eval', type=int, default=32)
