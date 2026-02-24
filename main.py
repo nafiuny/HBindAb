@@ -135,7 +135,7 @@ if __name__ == "__main__":
     parser.add_argument('--bsize', type=int, default=32)
     parser.add_argument('--bsize_eval', type=int, default=32)
     parser.add_argument('--lr', default=5e-5, type=float)
-    parser.add_argument('--num_samples', type=int, default=100)
+    parser.add_argument('--num_samples', type=int, default=2)
     parser.add_argument('--resume', action="store_true")
     parser.add_argument('--cache', type=str, default='cache')
     parser.add_argument('--num_data_workers', type=int, default=0)
