@@ -121,11 +121,10 @@ class ESM2Scorer(metaclass=Singleton):
             if len(seq_text) == 0:
                 continue
 
-            # Tokenize with ESM-2
+            # ===== Tokenize with ESM-2 =====
             inputs = self.tokenizer(seq_text, return_tensors='pt', 
                                   add_special_tokens=True).to(device)
             
-            # Calculate loss (this gives overall sequence PPL)
             with torch.no_grad():
                 outputs = self.model(**inputs, labels=inputs['input_ids'])
                 loss = outputs.loss.item()
@@ -149,15 +148,15 @@ class HBindAbLight(pl.LightningModule):
         self.lr = lr
         self.num_samples = num_samples
 
-        # ---- Tokenizer ----
+        # ===== Tokenizer =====
         self.tokenizer = BertTokenizer.from_pretrained(antibody_model_name, cache_dir=cache)
 
-        # ---- Encoders ----
+        # ===== Encoders =====
         self.ab_encoder = AutoModel.from_pretrained(antibody_model_name, cache_dir=cache)
         self.ag_encoder = AutoModel.from_pretrained(antigen_model_name, cache_dir=cache)
         
 
-        # Freeze all except last layer of ab_encoder
+        # ===== Freeze all except last layer of ab_encoder =====
         for p in self.ab_encoder.parameters(): p.requires_grad = False
         for p in self.ag_encoder.parameters(): p.requires_grad = False
         for p in self.ab_encoder.encoder.layer[-1].parameters(): p.requires_grad = True
@@ -174,7 +173,7 @@ class HBindAbLight(pl.LightningModule):
 
         self.diffusion = DiffusionDenoiser(d_model, num_classes=self.tokenizer.vocab_size)
 
-        # loss function
+        # ===== loss function =====
         self.criterion = nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_token_id)
         self.test_outputs = []
 
@@ -186,7 +185,7 @@ class HBindAbLight(pl.LightningModule):
         loss_ag2ab = F.cross_entropy(logits.T, labels)
         return 0.5 * (loss_ab2ag + loss_ag2ab)
 
-    # training
+    # ===== training =====
     def training_step(self, batch, batch_idx):
         src_ids = batch["src_ids"]
         tgt_ids = batch["tgt_ids"]
@@ -233,7 +232,7 @@ class HBindAbLight(pl.LightningModule):
             
         return loss
 
-    # validation
+    # ===== validation =====
     def validation_step(self, batch, batch_idx):
         src_ids = batch["src_ids"]
         tgt_ids = batch["tgt_ids"]
@@ -253,17 +252,17 @@ class HBindAbLight(pl.LightningModule):
         preds = logits.argmax(-1)
         
         correct = ((preds == tgt_ids) & infill_mask).sum()
-        total = max(infill_mask.sum(), 1)  # جلوگیری از صفر شدن
+        total = max(infill_mask.sum(), 1)  
         aar = correct.float() / total.float()
         self.log("valid_AAR_epoch", aar, on_step=False, on_epoch=True, prog_bar=True, logger=True)
        
-    # add noise
+    # ===== add noise =====
     def q_sample(self, x0, t, mask):
         B, L = x0.shape
         x_t = x0.clone()
         beta_t = self.betas.to(x0.device)[t].view(B, 1)
         rand = torch.rand(B, L, device=x0.device)
-        corrupt = (rand < beta_t) & mask  # فقط token های masked
+        corrupt = (rand < beta_t) & mask  
 
         # random tokens from vocab
         noise = torch.randint(0, self.tokenizer.vocab_size, (B, L), device=x0.device)
@@ -275,7 +274,7 @@ class HBindAbLight(pl.LightningModule):
         x_t[corrupt] = noise[corrupt]
         return x_t
         
-    # sampling 
+    # ===== sampling ===== 
     def sample(self, batch, n_samples):
         src = batch["src_ids"]
         infill_mask = batch["infill_mask"].bool()
@@ -283,7 +282,7 @@ class HBindAbLight(pl.LightningModule):
         antigen_mask = batch["antigen_mask"]
         B, L = src.shape
 
-        # ---------- Greedy (deterministic) ----------
+        # ===== Greedy (deterministic) =====
         x_greedy = src.clone()
         for t in reversed(range(self.T)):
             attention_mask = (x_greedy != self.tokenizer.pad_token_id) & (~infill_mask)
@@ -292,7 +291,7 @@ class HBindAbLight(pl.LightningModule):
             logits = self.diffusion(h_ab, h_ag, antigen_mask, torch.full((B,), t, device=self.device))
             x_greedy[infill_mask] = logits.argmax(-1)[infill_mask]
 
-        # ---------- Stochastic samples ----------
+        # ===== Stochastic samples =====
         samples = []
         i=1
         for k in range(n_samples):
@@ -311,10 +310,10 @@ class HBindAbLight(pl.LightningModule):
             i = i+1
         return x_greedy.detach(), samples
 
-    # test
+    # ===== test =====
     def test_step(self, batch, batch_idx):
         print(f"[test_step] batch {batch_idx} start")
-        greedy, samples = self.sample(batch, 2)
+        greedy, samples = self.sample(batch, self.num_samples)
         print(f"[test_step] batch {batch_idx} done")
 
         src_ids = batch["src_ids"]
@@ -352,7 +351,7 @@ class HBindAbLight(pl.LightningModule):
                 smpls_i = torch.stack([samples[k][i] for k in range(K)], 0)
                 mask = infill_mask[i]
 
-                # ===== DIV =====
+                # ===== DIV ===== 
                 eq = smpls_i.unsqueeze(0) == smpls_i.unsqueeze(1)       
                 m = mask.view(1, 1, -1)                                 
 
@@ -427,7 +426,7 @@ class HBindAbLight(pl.LightningModule):
 
         print(">>> Test finished:", results)
 
-    # optimizer
+    # ===== optimizer =====
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW([
             {"params": self.diffusion.parameters(), "lr": self.lr},
@@ -445,7 +444,7 @@ class HBindAbLight(pl.LightningModule):
             "lr_scheduler": scheduler
         }
      
-    #inference
+    # ===== inference =====
     def prepare_single_input(self, antibody_seq, antigen_seq):
         """
         antibody_seq: string with ***** for CDR-H3
@@ -454,7 +453,7 @@ class HBindAbLight(pl.LightningModule):
 
         device = self.device
 
-        # ---- Antibody ----
+        # ===== Antibody =====
         tokens = []
         infill_mask = []
 
@@ -472,7 +471,7 @@ class HBindAbLight(pl.LightningModule):
         src_ids = ab_enc["input_ids"].to(device)
         infill_mask = torch.tensor([False] + infill_mask + [False],device=device).unsqueeze(0)
 
-        # ---- Antigen ----
+        # ===== Antigen =====
         ag_enc = self.tokenizer(" ".join(list(antigen_seq)),return_tensors="pt",add_special_tokens=True)
 
         antigen_ids = ag_enc["input_ids"].to(device)
