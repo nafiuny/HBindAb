@@ -203,7 +203,7 @@ class HBindAbLight(pl.LightningModule):
         h_ab = self.ab_encoder(x_t, attention_mask=attention_mask).last_hidden_state
         h_ag = self.ag_proj(self.ag_encoder(antigen_ids, attention_mask=antigen_mask).last_hidden_state)
 
-        ab_mask = infill_mask  # فقط جاهایی که مدل می‌سازد
+        ab_mask = infill_mask  
         ab_emb = masked_mean_pool(h_ab, ab_mask)
         ag_emb = masked_mean_pool_ag(h_ag, antigen_mask)
         ag_emb = ag_emb.detach()
@@ -303,9 +303,7 @@ class HBindAbLight(pl.LightningModule):
                 h_ab = self.ab_encoder(x, attention_mask=attention_mask).last_hidden_state
                 h_ag = self.ag_proj(self.ag_encoder(antigen_ids, attention_mask=antigen_mask).last_hidden_state)
                 logits = self.diffusion(h_ab, h_ag, antigen_mask, torch.full((B,), t, device=self.device))
-                #temp = 0.8 if t > self.T * 0.3 else 0.5
-                #probs = F.softmax(logits / temp, dim=-1)
-                probs = F.softmax(logits/1.7, dim=-1)          #3)new 14_v7 gooood
+                probs = F.softmax(logits/1.7, dim=-1)          
                 sampled = torch.multinomial(probs.view(-1, probs.size(-1)), 1).view(B, L)
                 x[infill_mask] = sampled[infill_mask]
 
@@ -316,35 +314,30 @@ class HBindAbLight(pl.LightningModule):
     # test
     def test_step(self, batch, batch_idx):
         print(f"[test_step] batch {batch_idx} start")
-        greedy, samples = self.sample(batch, self.num_samples)
+        greedy, samples = self.sample(batch, 2)
         print(f"[test_step] batch {batch_idx} done")
 
         src_ids = batch["src_ids"]
         tgt_ids = batch["tgt_ids"]
         infill_mask = batch["infill_mask"]
-        pdbs = batch["key"]
-        print(f"******** {pdbs}")
+        pdbs = batch["key"] 
        
         self.test_outputs.append({
             "pdbs": pdbs,
             "src_ids": src_ids,
             "tgt_ids": tgt_ids,
             "infill_mask": infill_mask,
-            "samples": samples,                # List[K][B,L]
-            "greedy": greedy                   # [B, L]
+            "samples": samples,                
+            "greedy": greedy                   
         })
         
     def on_test_epoch_end(self):
         print(">>> Test epoch end started")
-
         esm = ESM2Scorer()
-        succ, tot = 0, 0
         succ_mean, tot_mean = 0, 0
         ppl_sum, ppl_cnt = 0.0, 0
         pdbs_all, src_all, tgt_all, best_all, greedy_all, div_all = [], [], [], [], [], []
         all_samples = []
-        diversity_list = []
-
 
         for out in self.test_outputs:
             src_ids = out["src_ids"]
@@ -360,12 +353,12 @@ class HBindAbLight(pl.LightningModule):
                 mask = infill_mask[i]
 
                 # ===== DIV =====
-                eq = smpls_i.unsqueeze(0) == smpls_i.unsqueeze(1)       # [K, K, L]
-                m = mask.view(1, 1, -1)                                 # [1, 1, L]
+                eq = smpls_i.unsqueeze(0) == smpls_i.unsqueeze(1)       
+                m = mask.view(1, 1, -1)                                 
 
-                sim = (eq * m).sum(dim=-1) / m.sum()                    # [K, K] new
-                div = 1.0 - sim.mean()                                  #new
-                div_all.append(div.item())                              #new
+                sim = (eq * m).sum(dim=-1) / m.sum()                    
+                div = 1.0 - sim.mean()                                  
+                div_all.append(div.item())                              
     
                 # ===== PPL =====
                 infill_mask_i = infill_mask[i].repeat(self.num_samples, 1).to(self.device)
@@ -380,13 +373,9 @@ class HBindAbLight(pl.LightningModule):
                     tot_mean  += mask.sum().item()
 
                 best_idx = int(np.argmin(ppl_scores))
-                best = smpls_i[best_idx]
-    
-                # ===== AAR  =====
+                best = smpls_i[best_idx]  
                 greedy_i = greedy[i]
-                #succ += (best[mask] == tgt_ids[i][mask]).sum().item()            
-                #tot += mask.sum().item()
-
+                
                 ppl_sum += ppl_scores[best_idx]
                 ppl_cnt += 1
                 
@@ -404,13 +393,9 @@ class HBindAbLight(pl.LightningModule):
                 greedy_all.append(self.tokenizer.decode(pred_full, skip_special_tokens=True))
                 all_samples.append(self.tokenizer.batch_decode(smpls_i, skip_special_tokens=True))
         
-        #aar = 100 * succ / tot          #highest AAR from 100 samples
-        aar_mean = 100 * succ_mean / tot_mean          #mean AAR from 100 samples
-        #ppl = ppl_sum / ppl_cnt         #lowest ppl from 100 samples
+        aar = 100 * succ_mean / tot_mean          
         div = 100 - 100 * np.mean(div_all)
-        div_test2 = 100 - 100 * np.mean(diversity_list) #new bad
-        div_test3 = 100 * np.mean(div_all) #new
-        ppl = np.exp(ppl_sum / ppl_cnt)  #new good
+        ppl = np.exp(ppl_sum / ppl_cnt)  
         
         root = self.trainer.default_root_dir
         print (">>> Write Fasta")
@@ -421,8 +406,8 @@ class HBindAbLight(pl.LightningModule):
 
         write_fasta(f"{root}/masked.fasta", pdbs_all, src_all)
         write_fasta(f"{root}/true.fasta", pdbs_all, tgt_all)
-        write_fasta(f"{root}/pred_bstsmpl.fasta", pdbs_all, best_all)       #lowest ppl from 100 samples      
-        write_fasta(f"{root}/pred.fasta", pdbs_all, greedy_all)             #highest AAR from 100 samples
+        write_fasta(f"{root}/pred_bstsmpl.fasta", pdbs_all, best_all)         
+        write_fasta(f"{root}/pred.fasta", pdbs_all, greedy_all)             
         
         with open(f"{root}/pred_smpls.fasta", "w") as f:
             for pdb_id, smpls in zip(pdbs_all, all_samples):
@@ -430,16 +415,13 @@ class HBindAbLight(pl.LightningModule):
                     f.write(f">{pdb_id}_{i}\n{''.join(s.split())}\n")
 
         results = {
-            #"AAR_test": aar,
-            "AAR_mean": aar_mean,
-            "PPL_test": ppl,       #goooood
-            "DIV_test": div,        #goooood
-            #"DIV_test2":div_test2,  #for delete
-            #"DIV_test3":div_test3,  #new
+            "AAR_test": aar,
+            "PPL_test": ppl,       
+            "DIV_test": div,          
             "num_samples": self.num_samples
         }
         
-        log.info(f'PPL_test = {ppl}, AAR_mean = {aar_mean}, DIV_test = {div}')
+        log.info(f'AAR_test = {aar}, PPL_test = {ppl}, DIV_test = {div}, num_samples = {self.num_samples}')
         with open(f"{root}/results.json", "w") as f:
             json.dump(results, f, indent=2)
 
@@ -462,34 +444,8 @@ class HBindAbLight(pl.LightningModule):
             "optimizer": optimizer,
             "lr_scheduler": scheduler
         }
-
-    
-    def top_k_top_p_filtering(logits, top_k=0, top_p=1.0, filter_value=-float("Inf")):
-        """
-        logits: (B, L, V)
-        """
-        top_k = min(top_k, logits.size(-1))
-
-        # ---- Top-K ----
-        if top_k > 0:
-            kth_vals = torch.topk(logits, top_k)[0][..., -1, None]
-            logits = torch.where(logits < kth_vals, filter_value, logits)
-
-        # ---- Top-P (nucleus) ----
-        if top_p < 1.0:
-            sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-            cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
-
-            sorted_mask = cumulative_probs > top_p
-            sorted_mask[..., 1:] = sorted_mask[..., :-1].clone()
-            sorted_mask[..., 0] = 0
-
-            mask = sorted_mask.scatter(-1, sorted_indices, sorted_mask)
-            logits = logits.masked_fill(mask, filter_value)
-
-        return logits
-        
-    #new inference
+     
+    #inference
     def prepare_single_input(self, antibody_seq, antigen_seq):
         """
         antibody_seq: string with ***** for CDR-H3
@@ -529,9 +485,8 @@ class HBindAbLight(pl.LightningModule):
             "antigen_mask": antigen_mask
         }
 
-    #new inference
     @torch.no_grad()
-    def generate(self, antibody_seq, antigen_seq, num_samples, temperature=1.7, top_k=50, top_p=0.9):
+    def generate(self, antibody_seq, antigen_seq, num_samples, temperature=1.7):
         self.eval()
         batch = self.prepare_single_input(antibody_seq, antigen_seq)
 
@@ -552,14 +507,7 @@ class HBindAbLight(pl.LightningModule):
 
                 logits = self.diffusion(h_ab, h_ag, antigen_mask,torch.full((B,), t, device=self.device))
 
-                #probs = F.softmax(logits / temperature, dim=-1)
-                #sampled = torch.multinomial(probs.view(-1, probs.size(-1)), 1).view(B, L)
-
-                
-                logits = logits / temperature
-                logits = self.top_k_top_p_filtering(logits, top_k=top_k, top_p=top_p)
-
-                probs = F.softmax(logits, dim=-1)
+                probs = F.softmax(logits / temperature, dim=-1)
                 sampled = torch.multinomial(probs.view(-1, probs.size(-1)), 1).view(B, L)
 
                 x[infill_mask] = sampled[infill_mask]
@@ -568,7 +516,6 @@ class HBindAbLight(pl.LightningModule):
 
         return samples, infill_mask[0]
 
-    #new inference
     def generate_fasta(self, antibody_seq, antigen_seq, fasta_path, num_samples):
         samples, mask = self.generate(antibody_seq,antigen_seq,num_samples=num_samples)
 
@@ -580,23 +527,20 @@ class HBindAbLight(pl.LightningModule):
 
 
 def decode_with_X(tokenizer, ids, mask):
-    """
-    ids:  [L] tensor
-    mask: [L] bool tensor (True = masked / CDR)
-    """
-    tokens = tokenizer.convert_ids_to_tokens(ids.tolist())
-    seq = []
+    seq = tokenizer.decode(ids, skip_special_tokens=True)
+    seq = list(seq.replace(" ", ""))  
 
-    for tok, m in zip(tokens, mask):
-        if tok in tokenizer.all_special_tokens:
-            continue
+    out = []
+    j = 0
+    for m in mask:
         if m:
-            seq.append("X")
+            out.append("X")
         else:
-            seq.append(tok)
+            if j < len(seq):
+                out.append(seq[j])
+                j += 1
 
-    return "".join(seq)
-
+    return "".join(out)
 
 def masked_mean_pool_ag(h, mask):
     mask = mask.unsqueeze(-1).float()
